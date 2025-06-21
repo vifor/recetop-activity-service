@@ -1,0 +1,36 @@
+# Compiled Go binaries.
+# This is the most important part for our project, as it ignores the executable
+# we build. I've included both 'bootstrap' and 'main' (our previous name).
+bootstrap
+main
+*.exe
+
+# Test coverage files
+coverage.out
+profile.out
+
+# Dependency directories (Go modules make this less common, but it's good practice)
+vendor/
+
+# OS-generated files
+# Mac
+.DS_Store
+# Windows
+Thumbs.db
+ehthumbs.db
+
+# Editor/IDE specific files
+# VS Code
+.vscode/
+# GoLand / JetBrains
+.idea/
+# Vim
+*.swp
+*~
+
+# Environment files
+# Never commit your secrets!
+.env
+.env.*
+# But it's okay to commit an example template
+!/.env.example
