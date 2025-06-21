@@ -19,7 +19,8 @@ func handleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProx
 	// Marshal the response body into a JSON string.
 	jsonBody, err := json.Marshal(responseBody)
 	if err != nil {
-		// If there's an error creating the JSON, return a server error.
+
+		log.Printf("error marshaling response: %v", err)
 		return events.APIGatewayProxyResponse{Body: "Internal Server Error", StatusCode: http.StatusInternalServerError}, nil
 	}
 
