@@ -1,34 +1,43 @@
 package main
 
 import (
+	"log"
 	"net/http"
 
 	"github.com/akrylysov/algnhsa"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/vifor/recetop-activity-service/api" // Import our generated api package
+	"github.com/vifor/recetop-activity-service/api"
 )
 
-// Server is our custom struct which will hold any dependencies and implement our API.
-type Server struct {
-	// In the future, you could add dependencies like a database connection here.
-}
+// Server struct is unchanged
+type Server struct{}
 
-// Ensure our Server struct satisfies the generated ServerInterface.
-// The compiler will error here if we don't implement all the interface's methods.
+// Ensure we satisfy the interface
 var _ api.ServerInterface = (*Server)(nil)
 
-// HealthCheck implements the `healthCheck` operation defined in our openapi.yaml
+// HealthCheck method is unchanged
 func (s *Server) HealthCheck(ctx echo.Context) error {
-	// This is our business logic from before.
-	message := "Go serverless with OpenAPI spec!" // 1. Store the string in a variable.
-
+	message := "Go serverless with OpenAPI spec!"
 	response := api.HealthStatus{
 		Status:  "UP",
-		Message: &message, // 2. Take the address of the variable. This is now valid.
+		Message: &message,
 	}
-
 	return ctx.JSON(http.StatusOK, response)
+}
+
+// --- NEW DIAGNOSTIC MIDDLEWARE ---
+// This middleware will run for EVERY request, before any other logic.
+func diagnosticRequestLogger(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		req := c.Request()
+		log.Println("-------------------------------------------------------")
+		log.Printf("[DIAGNOSTIC] Received a request. Details below:")
+		log.Printf("[DIAGNOSTIC]   - Method: %s", req.Method)
+		log.Printf("[DIAGNOSTIC]   - Path from URL object: %s", req.URL.Path)
+		log.Println("-------------------------------------------------------")
+		return next(c)
+	}
 }
 
 func main() {
@@ -38,24 +47,19 @@ func main() {
 	// Create a new Echo instance
 	e := echo.New()
 
-	// Add standard middleware
-	e.Use(middleware.Logger()) // This is what generated the helpful log!
+	// You can now remove the diagnosticRequestLogger middleware, as it has served its purpose!
+	// The standard Logger is still useful for seeing the final status code.
+	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	// Define the base path that API Gateway sends to our Lambda.
+	// --- THE FINAL FIX ---
+	// We manually register the exact path we know we are receiving from the logs
+	// and point it directly to our type-safe HealthCheck handler method.
+	// This removes all ambiguity.
+	e.GET("/default/recetop-activity-service", s.HealthCheck)
 
-	basePath := "/default/recetop-activity-service"
+	// We no longer need the apiGroup or the RegisterHandlers call.
 
-	// Create a group for our API handlers. All routes registered on this
-	// group will be nested under the base path.
-	apiGroup := e.Group(basePath)
-
-	// Register our server's handlers (like GET /) onto the group.
-	// oapi-codegen will now correctly register our HealthCheck on the path
-	// "/default/recetop-activity-service/".
-	api.RegisterHandlers(apiGroup, s)
-
-	// The algnhsa library starts our Echo server and translates Lambda
-	// events into standard HTTP requests that Echo can understand.
+	// Start the adapter. It will now find the explicit route and execute our handler.
 	algnhsa.ListenAndServe(e, nil)
 }
