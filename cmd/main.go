@@ -21,10 +21,13 @@ var _ api.ServerInterface = (*Server)(nil)
 // HealthCheck implements the `healthCheck` operation defined in our openapi.yaml
 func (s *Server) HealthCheck(ctx echo.Context) error {
 	// This is our business logic from before.
+	message := "Go serverless with OpenAPI spec!" // 1. Store the string in a variable.
+
 	response := api.HealthStatus{
 		Status:  "UP",
-		Message: "Go serverless with OpenAPI spec!", // Updated message!
+		Message: &message, // 2. Take the address of the variable. This is now valid.
 	}
+
 	return ctx.JSON(http.StatusOK, response)
 }
 
