@@ -99,10 +99,11 @@ While the primary target is AWS Lambda, the Hexagonal Architecture makes local t
 
 ## API Endpoint
 
-| HTTP Method | Endpoint | Description                          | Response Body                                         |
-|-------------|----------|--------------------------------------|-------------------------------------------------------|
-| GET         | /        | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
+*Note: Due to the default AWS HTTP API Gateway configuration, all routes are prefixed with the stage and function name. The application's router is configured to handle this base path (`/default/recetop-activity-service`).*
 
+| HTTP Method | Endpoint | Description                                | Response Body                                              |
+| :---------- | :------- | :----------------------------------------- | :--------------------------------------------------------- |
+| `GET`       | `/`      | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
 ---
 
 ## Architectural Decisions
