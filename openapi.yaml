@@ -1,0 +1,38 @@
+openapi: 3.0.3
+info:
+  title: Recetop Activity Service
+  description: A service for tracking user activity events.
+  version: 1.0.0
+
+# This section defines all the URL paths for your API
+paths:
+  # The root path for our health check
+  /:
+    get:
+      summary: Health Check
+      description: Checks if the service is operational.
+      operationId: healthCheck
+      responses:
+        # A successful response
+        '200':
+          description: Service is healthy and running.
+          content:
+            application/json:
+              schema:
+                # This points to a reusable schema definition below
+                $ref: '#/components/schemas/HealthStatus'
+
+# This section contains reusable components, like data models
+components:
+  schemas:
+    HealthStatus:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: "UP"
+        message:
+          type: string
+          example: "Go serverless with AWS Lambda!"
