@@ -127,9 +127,9 @@ This project uses a multi-layered testing approach to ensure code quality, corre
 
 ### Architectural Decision: `httptest` vs. Karate
 
-For the integration/API testing layer, we considered external, black-box testing tools like [Karate](https://github.com/karatelabs/karate), which is excellent for testing any HTTP endpoint regardless of the backend language.
+For the integration/API testing layer, I've considered external, black-box testing tools like [Karate](https://github.com/karatelabs/karate), which is excellent for testing any HTTP endpoint regardless of the backend language.
 
-However, we made the deliberate decision to use Go's native `net/http/httptest` library for this project's primary integration tests. The reasoning is as follows:
+However, I've made the deliberate decision to use Go's native `net/http/httptest` library for this project's primary integration tests. The reasoning is as follows:
 
 * **Tight Integration:** The tests are written in Go and run with the standard `go test` command. There is no need for external runtimes (like a JVM) or dependencies.
 * **Extreme Speed:** In-memory tests execute in milliseconds, providing an incredibly fast feedback loop for developers. This encourages running tests frequently.
