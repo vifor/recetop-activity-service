@@ -26,19 +26,7 @@ func (s *Server) HealthCheck(ctx echo.Context) error {
 	return ctx.JSON(http.StatusOK, response)
 }
 
-// --- NEW DIAGNOSTIC MIDDLEWARE ---
-// This middleware will run for EVERY request, before any other logic.
-func diagnosticRequestLogger(next echo.HandlerFunc) echo.HandlerFunc {
-	return func(c echo.Context) error {
-		req := c.Request()
-		log.Println("-------------------------------------------------------")
-		log.Printf("[DIAGNOSTIC] Received a request. Details below:")
-		log.Printf("[DIAGNOSTIC]   - Method: %s", req.Method)
-		log.Printf("[DIAGNOSTIC]   - Path from URL object: %s", req.URL.Path)
-		log.Println("-------------------------------------------------------")
-		return next(c)
-	}
-}
+// Removed the diagnosticRequestLogger middleware function as it is no longer used.
 
 func main() {
 	// Create an instance of our server
