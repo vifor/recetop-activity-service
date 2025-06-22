@@ -1,40 +1,53 @@
 package main
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 
-	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/akrylysov/algnhsa"
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
+	"github.com/vifor/recetop-activity-service/api"
 )
 
-// handleRequest is the function that AWS Lambda will invoke.
-// It takes a request object from API Gateway and returns a response object.
-func handleRequest(request events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
-	log.Printf("Received request for path: %s", request.Path)
+// Server struct is unchanged
+type Server struct{}
 
-	responseBody := map[string]string{"status": "UP", "message": "Go serverless with AWS Lambda!"}
+// Ensure we satisfy the interface
+var _ api.ServerInterface = (*Server)(nil)
 
-	// Marshal the response body into a JSON string.
-	jsonBody, err := json.Marshal(responseBody)
-	if err != nil {
-
-		log.Printf("error marshaling response: %v", err)
-		return events.APIGatewayProxyResponse{Body: "Internal Server Error", StatusCode: http.StatusInternalServerError}, nil
+// HealthCheck method is unchanged
+func (s *Server) HealthCheck(ctx echo.Context) error {
+	message := "Go serverless with OpenAPI spec!"
+	response := api.HealthStatus{
+		Status:  "UP",
+		Message: &message,
 	}
-
-	// Return a successful response. API Gateway needs this specific struct.
-	return events.APIGatewayProxyResponse{
-		StatusCode: http.StatusOK,
-		Headers:    map[string]string{"Content-Type": "application/json"},
-		Body:       string(jsonBody),
-	}, nil
+	return ctx.JSON(http.StatusOK, response)
 }
 
-// main is the entrypoint for the Lambda function.
+// Removed the diagnosticRequestLogger middleware function as it is no longer used.
+
 func main() {
-	// The lambda.Start function is provided by the AWS SDK.
-	// It takes our handler function and starts the Lambda execution environment.
-	lambda.Start(handleRequest)
+	// Create an instance of our server
+	s := &Server{}
+
+	// Create a new Echo instance
+	e := echo.New()
+
+	// You can now remove the diagnosticRequestLogger middleware, as it has served its purpose!
+	// The standard Logger is still useful for seeing the final status code.
+	e.Use(middleware.Logger())
+	e.Use(middleware.Recover())
+
+	// --- THE FINAL FIX ---
+	// We manually register the exact path we know we are receiving from the logs
+	// and point it directly to our type-safe HealthCheck handler method.
+	// This removes all ambiguity.
+	e.GET("/default/recetop-activity-service", s.HealthCheck)
+
+	// We no longer need the apiGroup or the RegisterHandlers call.
+
+	// Start the adapter. It will now find the explicit route and execute our handler.
+	algnhsa.ListenAndServe(e, nil)
 }

@@ -2,42 +2,58 @@
 
 A high-performance microservice built with Go (Golang) for tracking and ingesting user activity events from the Recetop application. This service is designed to be lightweight, efficient, and scalable, making it ideal for a serverless deployment on AWS Lambda.
 
+This project follows a **"Design-First" API approach**, with the API contract defined in an OpenAPI 3.0 specification. The Go code for the server interface and data models is generated from this specification, ensuring the implementation always matches the contract.
+
 ---
 
 ## Technologies Used
 
 - **Language:** Go (Golang)
+- **API Specification:** OpenAPI 3.0
+- **Code Generation:** oapi-codegen
+- **Web Framework:** Echo v4
 - **Target Platform:** AWS Lambda (using a `provided.al2023` custom runtime)
+- **Lambda Adapter:** algnhsa
 - **Infrastructure:** AWS API Gateway (HTTP API), AWS IAM
+
+---
+
+## API Contract and Code Generation
+
+This project uses **oapi-codegen** to generate Go code from the API specification. The `openapi.yaml` file is the single source of truth for the API's contract.
+
+If you make changes to `openapi.yaml`, you must regenerate the server code before building. The generation command is embedded in the `generate.go` file.
+
+To regenerate the API code, run the following command from the project root:
+
+```bash
+go generate ./...
+```
 
 ---
 
 ## Deployment to AWS Lambda
 
-This service is not intended to be run as a traditional local server. It is designed to be compiled and deployed directly to AWS Lambda.
-
 ### Prerequisites
 
-- Go (version 1.20 or later recommended)
+- Go (version 1.21 or later recommended)
 - An AWS account with access to IAM, Lambda, and API Gateway.
 
 ---
 
 ### Step 1: Build the Executable
 
-To deploy this function, you must first compile it into a Linux executable named `bootstrap`. This specific name is a requirement for AWS Lambda's custom runtimes (`provided.al2023`).
+Compile the application into a Linux executable named `bootstrap`. This name is required by the AWS Lambda custom runtime.
 
 **On Windows (PowerShell):**
 
 ```powershell
-# Set environment variables to compile for Linux, then build the 'bootstrap' file.
 $env:GOOS="linux"; $env:GOARCH="amd64"; go build -o bootstrap .
 ```
 
 **On macOS / Linux (Bash/Zsh):**
 
 ```bash
-# Set environment variables to compile for Linux, then build the 'bootstrap' file.
 GOOS=linux GOARCH=amd64 go build -o bootstrap .
 ```
 
@@ -45,19 +61,17 @@ GOOS=linux GOARCH=amd64 go build -o bootstrap .
 
 ### Step 2: Package for Deployment
 
-AWS Lambda expects the code to be in a `.zip` file. Compress the `bootstrap` binary you just created.
+Compress the `bootstrap` binary into a `.zip` file for uploading to Lambda.
 
 **On Windows (PowerShell):**
 
 ```powershell
-# Create a zip archive containing the bootstrap executable.
 Compress-Archive -Path .\bootstrap -DestinationPath .\deployment.zip
 ```
 
 **On macOS / Linux (Bash/Zsh):**
 
 ```bash
-# Create a zip archive containing the bootstrap executable.
 zip deployment.zip bootstrap
 ```
 
@@ -65,41 +79,57 @@ zip deployment.zip bootstrap
 
 ### Step 3: Deploy to AWS
 
-Upload the `deployment.zip` package to a new AWS Lambda function with the following configuration:
+Upload the `deployment.zip` package to a new or existing AWS Lambda function with the following configuration:
 
-- **IAM Role:** Create a new IAM Role for the function with the `AWSLambdaBasicExecutionRole` managed policy. This allows the function to write logs to CloudWatch.
+- **IAM Role:** Requires the `AWSLambdaBasicExecutionRole` policy to write logs to CloudWatch.
 - **Lambda Function:**
-  - **Runtime:** Select Custom runtime on Amazon Linux 2023 (`provided.al2023`).
-  - **Handler:** Set the handler name to `bootstrap` (or `main`, as the bootstrap file in the zip takes precedence).
+  - **Runtime:** Custom runtime on Amazon Linux 2023 (`provided.al2023`).
+  - **Handler:** `bootstrap`.
   - **Code Upload:** Upload your `deployment.zip` file.
 - **API Gateway Trigger:**
-  - Add a trigger to your Lambda function.
-  - Select API Gateway.
-  - Choose to create a new HTTP API.
-  - This will provide you with a public URL to invoke your function.
+  - Add an HTTP API trigger to make the function accessible via a public URL.
 
 ---
 
 ## Local Testing (Advanced)
 
-Directly running this application with `go run` is not possible as it lacks a web server. For local testing that mimics the cloud environment, the recommended approach is to use the [AWS Serverless Application Model (SAM) CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli.html). This tool can invoke your function locally in a Docker container that replicates the Lambda environment.
+While the primary target is AWS Lambda, the Hexagonal Architecture makes local testing simple. For advanced local testing that fully mimics the Lambda environment, the [AWS Serverless Application Model (SAM) CLI](https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli.html) is recommended.
 
 ---
 
 ## API Endpoint
 
-| HTTP Method | Endpoint | Description                          | Response Body                                      |
-|-------------|----------|--------------------------------------|----------------------------------------------------|
-| GET         | /        | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with AWS Lambda!"}` |
+*Note: Due to the default AWS HTTP API Gateway configuration, all routes are prefixed with the stage and function name. The application's router is configured to handle this base path (`/default/recetop-activity-service`).*
 
+| HTTP Method | Endpoint | Description                                | Response Body                                              |
+| :---------- | :------- | :----------------------------------------- | :--------------------------------------------------------- |
+| `GET`       | `/`      | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
 ---
 
 ## Architectural Decisions
 
 ### Choice of Language: Go
 
-Go was deliberately chosen for this serverless microservice to optimize for performance and cost in a cloud environment.
+Go was deliberately chosen to optimize for performance and cost in a cloud environment. Its fast compile times, small binary size, low memory footprint, and efficient concurrency result in significantly faster "cold starts" on AWS Lambda compared to interpreted languages.
 
-- **Reduced Cold Start Times:** As a compiled language, Go produces a small, self-contained binary. This allows the Lambda function to have significantly faster "cold start" times compared to interpreted languages, reducing latency and improving user experience.
-- **Efficiency:** Go's low memory footprint and efficient CPU usage are ideal for a serverless platform where allocated resources and execution time are directly tied to cost.
-- **Modern Custom Runtime:** By compiling for `provided.al2023`, we ensure the application runs in the latest, most secure, and most performant Lambda environment, giving us full control over the
+---
+
+### Design Pattern: Hexagonal Architecture (Ports and Adapters)
+
+This service is structured following the Hexagonal Architecture pattern to isolate the core application logic from external concerns like AWS Lambda.
+
+- **The Hexagon (Core Logic):** The `Server` struct contains the pure business logic for handling API requests. It has no knowledge of AWS.
+- **The Port (The API Contract):** The `api.ServerInterface` generated by oapi-codegen from `openapi.yaml`. This Go interface is the formal contract that the core logic must implement.
+- **The Adapter:** The `main` function acts as the adapter. It uses the `algnhsa` library to translate incoming AWS Lambda / API Gateway events into standard HTTP requests that are then routed to the core application via the Echo framework.
+
+This separation provides immense benefits, including enhanced testability (the core logic can be unit-tested without AWS) and portability (the core logic could be served by a standard `net/http` server with a different adapter).
+
+---
+
+### HTTP Handling: Echo Framework
+
+Instead of handling raw HTTP requests, the service uses the Echo web framework.
+
+- **Performance:** Echo is a high-performance, minimalist framework that adds very little overhead.
+- **Productivity:** It provides helpful utilities for routing, data binding, and response generation, which simplifies the application code. Its middleware system is useful for cross-cutting concerns like logging and error recovery.
+- **Integration:** oapi-codegen integrates seamlessly with Echo, generating compatible server interfaces out of the box.
