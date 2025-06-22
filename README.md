@@ -106,6 +106,38 @@ While the primary target is AWS Lambda, the Hexagonal Architecture makes local t
 | `GET`       | `/`      | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
 ---
 
+## Testing Strategy
+
+This project uses a multi-layered testing approach to ensure code quality, correctness, and reliability. The strategy is inspired by the "testing pyramid," with a focus on fast, automated tests that run within the Go toolchain.
+
+### Unit Tests
+
+* **Tool:** Go's standard `testing` package.
+* **Goal:** To test the core application logic (the "Hexagon" in our architecture) in complete isolation. This involves testing the methods on the `Server` struct directly, without any dependency on the Echo framework or AWS infrastructure. These tests are extremely fast and verify the business logic.
+
+### Integration Tests (API Layer)
+
+* **Tool:** Go's `testing` and `net/http/httptest` packages.
+* **Goal:** To test the full application stack (HTTP routing, middleware, handlers, and core logic) without deploying to AWS. These tests spin up an in-memory version of the Echo server, make real HTTP requests to it, and validate the HTTP responses (status codes, headers, and JSON bodies). This provides a fast and reliable way to verify that the entire API is functioning correctly before deployment.
+
+### End-to-End (E2E) Tests
+
+* **Tool:** Postman / cURL.
+* **Goal:** To verify that the service is working correctly after being deployed to the live AWS environment. This is a final sanity check to ensure the infrastructure (API Gateway, Lambda permissions) is configured correctly.
+
+### Architectural Decision: `httptest` vs. Karate
+
+For the integration/API testing layer, we considered external, black-box testing tools like [Karate](https://github.com/karatelabs/karate), which is excellent for testing any HTTP endpoint regardless of the backend language.
+
+However, we made the deliberate decision to use Go's native `net/http/httptest` library for this project's primary integration tests. The reasoning is as follows:
+
+* **Tight Integration:** The tests are written in Go and run with the standard `go test` command. There is no need for external runtimes (like a JVM) or dependencies.
+* **Extreme Speed:** In-memory tests execute in milliseconds, providing an incredibly fast feedback loop for developers. This encourages running tests frequently.
+* **No Deployment Necessary:** The full application stack can be validated without the time-consuming process of deploying to a remote environment.
+* **Compile-Time Safety:** The tests are part of the Go source code and benefit from the same type-safety and compile-time checks as the application itself.
+
+While Karate is a fantastic tool for true E2E testing against a deployed environment (often managed by a separate QA team), the `httptest` approach was chosen to maximize developer velocity and create a robust, self-contained safety net within the project itself.
+
 ## Architectural Decisions
 
 ### Choice of Language: Go
