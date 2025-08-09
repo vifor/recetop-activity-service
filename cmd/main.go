@@ -2,49 +2,61 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
+	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
-	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/go-chi/chi/v5"
 	"github.com/vifor/recetop-activity-service/api"
 )
 
-// 1. Create a struct to implement the API server interface.
+// Server struct remains the same.
 type Server struct{}
 
-// HealthCheck handles requests to the /health endpoint.
+// HealthCheck function remains the same.
 func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
-	// A simple health check just returns a 200 OK status.
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Service is healthy and running!"))
 }
 
-// 2. Implement the TrackEvent function defined in the generated interface.
+// TrackEvent function remains the same.
 func (s *Server) TrackEvent(w http.ResponseWriter, r *http.Request) {
-	log.Println("Track endpoint was called successfully!")
+	log.Println("TrackEvent handler was called successfully!")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Event tracked!"))
 }
 
 func main() {
-	swagger, err := api.GetSwagger()
-	if err != nil {
-		log.Fatalf("Error loading swagger spec\n: %s", err)
-	}
-	// This is just to prevent an "unused variable" error.
-	swagger.Info = &openapi3.Info{}
+	// This log remains. It tells us the Go runtime has started.
+	log.Println("--- LAMBDA INIT ---")
 
-	// 3. Create an instance of your new server.
+	// Router setup is the same.
 	srv := &Server{}
-
 	r := chi.NewRouter()
-
-	// 4. Register the handlers with the router.
 	api.HandlerFromMux(srv, r)
 
-	log.Println("Starting lambda")
-	lambda.Start(httpadapter.New(r).ProxyWithContext)
+	// We create the adapter that connects our Chi router to Lambda.
+	adapter := httpadapter.New(r)
+
+	// --- NEW LOGGING HANDLER ---
+	// Instead of starting the adapter directly, we start our own custom handler.
+	// This lets us see the raw request from API Gateway.
+	lambda.Start(func(ctx context.Context, req events.APIGatewayProxyRequest) (events.APIGatewayProxyResponse, error) {
+
+		// LOG 1: The most important log. It prints the HTTP Method and Path.
+		log.Printf("EVENT: Received %s request for %s", req.HTTPMethod, req.Path)
+
+		// LOG 2: This prints the request body. For a GET it will be empty.
+		// For your POST /track, it will show the full JSON payload.
+		log.Printf("BODY: %s", req.Body)
+
+		// After logging, we pass the request to the router adapter to handle it.
+		return adapter.ProxyWithContext(ctx, req)
+	})
 }
+
+// NOTE: We removed the api.GetSwagger() check from main() as it wasn't essential
+// for the core logic and can sometimes clutter the startup process.
