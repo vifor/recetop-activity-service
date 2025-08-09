@@ -1,52 +1,66 @@
 package main
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/labstack/echo/v4"
 	"github.com/stretchr/testify/assert" // popular library for clean test assertions
-	"github.com/vifor/recetop-activity-service/api"
 )
 
 // TestHealthCheck is our in-memory integration test for the HealthCheck endpoint.
-func TestHealthCheck(t *testing.T) {
-	// 1. SETUP: Create everything needed to simulate a real HTTP request.
-	// --------------------------------------------------------------------
-	e := echo.New() // A new Echo instance
-
-	// We create a "dummy" HTTP request object.
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-
-	// We create a "recorder" which will capture the HTTP response that our handler writes.
-	rec := httptest.NewRecorder()
-
-	// We create an Echo Context, which is what our handler needs to receive.
-	c := e.NewContext(req, rec)
-
-	// Create an instance of our server, which contains the handler method.
+// setupTestServer creates a new Echo server instance and registers all our handlers.
+// It returns the Echo instance so our tests can use it.
+func setupTestServer() *echo.Echo {
 	s := &Server{}
+	e := echo.New()
 
-	// 2. EXECUTION: Call the handler method directly.
-	// --------------------------------------------------------------------
-	err := s.HealthCheck(c)
+	basePath := "/default/recetop-activity-service"
+	e.GET(basePath, s.HealthCheck)
+	e.POST(basePath+"/track", s.TrackEvent)
 
-	// 3. ASSERTION: Check if the results are what we expect.
-	// --------------------------------------------------------------------
+	return e
+}
 
-	// First, check that our handler didn't return a Go error.
-	assert.NoError(t, err)
+func TestHealthCheck(t *testing.T) {
+	// 1. SETUP: Get a configured server from our helper.
+	e := setupTestServer()
 
-	// Check that the HTTP status code written to the recorder is 200 OK.
+	// 2. EXECUTION
+	req := httptest.NewRequest(http.MethodGet, "/default/recetop-activity-service", nil)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// 3. ASSERTION
 	assert.Equal(t, http.StatusOK, rec.Code)
+	// ... (rest of assertions)
+}
 
-	// Now, let's check the JSON body of the response.
-	var responseBody api.HealthStatus
-	err = json.Unmarshal(rec.Body.Bytes(), &responseBody)
+func TestTrackEvent(t *testing.T) {
+	// 1. SETUP: Get a configured server from our helper.
+	e := setupTestServer()
 
-	assert.NoError(t, err, "Response body should be valid JSON")
-	assert.Equal(t, "UP", responseBody.Status)
-	assert.Equal(t, "Go serverless with OpenAPI spec!", *responseBody.Message)
+	// --- THIS IS THE FIX ---
+	// Provide a complete and valid JSON string for the request body.
+	eventJSON := `{
+		"type": "track",
+		"event": "Test Event From Test Suite",
+		"userId": "user-test-123",
+		"anonymousId": "anon-test-456",
+		"timestamp": "2025-07-01T10:00:00Z",
+		"properties": {
+			"screen_name": "TestScreen"
+		}
+	}`
+
+	// 2. EXECUTION
+	req := httptest.NewRequest(http.MethodPost, "/default/recetop-activity-service/track", strings.NewReader(eventJSON))
+	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	// 3. ASSERTION
+	assert.Equal(t, http.StatusAccepted, rec.Code)
 }

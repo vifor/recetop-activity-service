@@ -1,52 +1,50 @@
+// File: cmd/main.go
 package main
 
 import (
+	"log"
 	"net/http"
 
-	"github.com/akrylysov/algnhsa"
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/awslabs/aws-lambda-go-api-proxy/httpadapter"
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-chi/chi/v5"
 	"github.com/vifor/recetop-activity-service/api"
 )
 
-// Server struct is unchanged
+// 1. Create a struct to implement the API server interface.
 type Server struct{}
 
-// Ensure we satisfy the interface
-var _ api.ServerInterface = (*Server)(nil)
-
-// HealthCheck method is unchanged
-func (s *Server) HealthCheck(ctx echo.Context) error {
-	message := "Go serverless with OpenAPI spec!"
-	response := api.HealthStatus{
-		Status:  "UP",
-		Message: &message,
-	}
-	return ctx.JSON(http.StatusOK, response)
+// HealthCheck handles requests to the /health endpoint.
+func (s *Server) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	// A simple health check just returns a 200 OK status.
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Service is healthy and running!"))
 }
 
-// Removed the diagnosticRequestLogger middleware function as it is no longer used.
+// 2. Implement the TrackEvent function defined in the generated interface.
+func (s *Server) TrackEvent(w http.ResponseWriter, r *http.Request) {
+	log.Println("Track endpoint was called successfully!")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Event tracked!"))
+}
 
 func main() {
-	// Create an instance of our server
-	s := &Server{}
+	swagger, err := api.GetSwagger()
+	if err != nil {
+		log.Fatalf("Error loading swagger spec\n: %s", err)
+	}
+	// This is just to prevent an "unused variable" error.
+	swagger.Info = &openapi3.Info{}
 
-	// Create a new Echo instance
-	e := echo.New()
+	// 3. Create an instance of your new server.
+	srv := &Server{}
 
-	// You can now remove the diagnosticRequestLogger middleware, as it has served its purpose!
-	// The standard Logger is still useful for seeing the final status code.
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
+	r := chi.NewRouter()
 
-	// --- THE FINAL FIX ---
-	// We manually register the exact path we know we are receiving from the logs
-	// and point it directly to our type-safe HealthCheck handler method.
-	// This removes all ambiguity.
-	e.GET("/default/recetop-activity-service", s.HealthCheck)
+	// 4. Register the handlers with the router.
+	api.HandlerFromMux(srv, r)
 
-	// We no longer need the apiGroup or the RegisterHandlers call.
-
-	// Start the adapter. It will now find the explicit route and execute our handler.
-	algnhsa.ListenAndServe(e, nil)
+	log.Println("Starting lambda")
+	lambda.Start(httpadapter.New(r).ProxyWithContext)
 }

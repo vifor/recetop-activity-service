@@ -1,30 +1,58 @@
 openapi: 3.0.3
 info:
   title: Recetop Activity Service
-  description: A service for tracking user activity events.
+  description: A service for tracking and ingesting user activity events.
   version: 1.0.0
 
-# This section defines all the URL paths for your API
+# =================================================================
+# PATHS SECTION
+# =================================================================
 paths:
-  # The root path for our health check
+  # --- Health Check Endpoint (GET) ---
   /:
     get:
       summary: Health Check
       description: Checks if the service is operational.
       operationId: healthCheck
       responses:
-        # A successful response
         '200':
           description: Service is healthy and running.
           content:
             application/json:
               schema:
-                # This points to a reusable schema definition below
                 $ref: '#/components/schemas/HealthStatus'
 
-# This section contains reusable components, like data models
+  # --- NEW: Activity Tracking Endpoint (POST) ---
+  /track:
+    post:
+      summary: Track User Event
+      description: Receives and processes a single user activity event.
+      operationId: trackEvent
+      requestBody:
+        description: A single user event object.
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TrackEvent' # Points to our new event model
+      responses:
+        # Success response (202 Accepted)
+        '202':
+          description: The event was accepted for processing.
+        # Error response (400 Bad Request)
+        '400':
+          description: The request body is invalid or malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+# =================================================================
+# COMPONENTS (DATA MODELS) SECTION
+# =================================================================
 components:
   schemas:
+    # --- Existing Schemas ---
     HealthStatus:
       type: object
       required:
@@ -35,4 +63,74 @@ components:
           example: "UP"
         message:
           type: string
-          example: "Go serverless with AWS Lambda!"
+          example: "Go serverless with OpenAPI spec!"
+
+    Error:
+      type: object
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          example: "Invalid request payload"
+
+    # --- NEW: Event Model Schemas ---
+    TrackEvent:
+      type: object
+      required:
+        - type
+        - event
+        - anonymousId
+        - timestamp
+      properties:
+        type:
+          type: string
+          description: The type of event. For activity tracking, this is always "track".
+          enum: [ "track" ]
+        event:
+          type: string
+          description: The name of the event being tracked.
+          example: "Screen Viewed"
+        userId:
+          type: string
+          description: The unique identifier for a logged-in user.
+          example: "user-12345"
+        anonymousId:
+          type: string
+          description: A unique identifier for a user before they log in.
+          example: "anon-abcde-fghij"
+        timestamp:
+          type: string
+          format: date-time
+          description: An ISO 8601 timestamp for when the event occurred.
+          example: "2025-06-27T12:10:30.123Z"
+        context:
+          $ref: '#/components/schemas/EventContext'
+        properties:
+          type: object
+          description: A flexible object for custom properties related to the event.
+          example:
+            screen_name: "RecipeDetailScreen"
+            component_id: "add_to_favorites_button"
+
+    EventContext:
+      type: object
+      properties:
+        app:
+          type: object
+          properties:
+            name:
+              type: string
+              example: "Recetop"
+            version:
+              type: string
+              example: "1.2.3"
+        device:
+          type: object
+          properties:
+            type:
+              type: string
+              example: "ios"
+            os_version:
+              type: string
+              example: "17.5"

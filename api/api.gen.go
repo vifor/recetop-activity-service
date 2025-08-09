@@ -4,64 +4,294 @@
 package api
 
 import (
-	"github.com/labstack/echo/v4"
-)
+	"bytes"
+	"compress/gzip"
+	"encoding/base64"
+	"fmt"
+	"net/http"
+	"net/url"
+	"path"
+	"strings"
 
-// HealthStatus defines model for HealthStatus.
-type HealthStatus struct {
-	Message *string `json:"message,omitempty"`
-	Status  string  `json:"status"`
-}
+	"github.com/getkin/kin-openapi/openapi3"
+	"github.com/go-chi/chi/v5"
+)
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
 	// Health Check
 	// (GET /)
-	HealthCheck(ctx echo.Context) error
+	HealthCheck(w http.ResponseWriter, r *http.Request)
+	// Track User Event
+	// (POST /track)
+	TrackEvent(w http.ResponseWriter, r *http.Request)
 }
 
-// ServerInterfaceWrapper converts echo contexts to parameters.
+// Unimplemented server implementation that returns http.StatusNotImplemented for each endpoint.
+
+type Unimplemented struct{}
+
+// Health Check
+// (GET /)
+func (_ Unimplemented) HealthCheck(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// Track User Event
+// (POST /track)
+func (_ Unimplemented) TrackEvent(w http.ResponseWriter, r *http.Request) {
+	w.WriteHeader(http.StatusNotImplemented)
+}
+
+// ServerInterfaceWrapper converts contexts to parameters.
 type ServerInterfaceWrapper struct {
-	Handler ServerInterface
+	Handler            ServerInterface
+	HandlerMiddlewares []MiddlewareFunc
+	ErrorHandlerFunc   func(w http.ResponseWriter, r *http.Request, err error)
 }
 
-// HealthCheck converts echo context to params.
-func (w *ServerInterfaceWrapper) HealthCheck(ctx echo.Context) error {
-	var err error
+type MiddlewareFunc func(http.Handler) http.Handler
 
-	// Invoke the callback with all the unmarshaled arguments
-	err = w.Handler.HealthCheck(ctx)
-	return err
-}
+// HealthCheck operation middleware
+func (siw *ServerInterfaceWrapper) HealthCheck(w http.ResponseWriter, r *http.Request) {
 
-// This is a simple interface which specifies echo.Route addition functions which
-// are present on both echo.Echo and echo.Group, since we want to allow using
-// either of them for path registration
-type EchoRouter interface {
-	CONNECT(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	DELETE(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	GET(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	HEAD(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	OPTIONS(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	PATCH(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	POST(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	PUT(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-	TRACE(path string, h echo.HandlerFunc, m ...echo.MiddlewareFunc) *echo.Route
-}
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.HealthCheck(w, r)
+	}))
 
-// RegisterHandlers adds each server route to the EchoRouter.
-func RegisterHandlers(router EchoRouter, si ServerInterface) {
-	RegisterHandlersWithBaseURL(router, si, "")
-}
-
-// Registers handlers, and prepends BaseURL to the paths, so that the paths
-// can be served under a prefix.
-func RegisterHandlersWithBaseURL(router EchoRouter, si ServerInterface, baseURL string) {
-
-	wrapper := ServerInterfaceWrapper{
-		Handler: si,
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
 	}
 
-	router.GET(baseURL+"/", wrapper.HealthCheck)
+	handler.ServeHTTP(w, r)
+}
 
+// TrackEvent operation middleware
+func (siw *ServerInterfaceWrapper) TrackEvent(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.TrackEvent(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+type UnescapedCookieParamError struct {
+	ParamName string
+	Err       error
+}
+
+func (e *UnescapedCookieParamError) Error() string {
+	return fmt.Sprintf("error unescaping cookie parameter '%s'", e.ParamName)
+}
+
+func (e *UnescapedCookieParamError) Unwrap() error {
+	return e.Err
+}
+
+type UnmarshalingParamError struct {
+	ParamName string
+	Err       error
+}
+
+func (e *UnmarshalingParamError) Error() string {
+	return fmt.Sprintf("Error unmarshaling parameter %s as JSON: %s", e.ParamName, e.Err.Error())
+}
+
+func (e *UnmarshalingParamError) Unwrap() error {
+	return e.Err
+}
+
+type RequiredParamError struct {
+	ParamName string
+}
+
+func (e *RequiredParamError) Error() string {
+	return fmt.Sprintf("Query argument %s is required, but not found", e.ParamName)
+}
+
+type RequiredHeaderError struct {
+	ParamName string
+	Err       error
+}
+
+func (e *RequiredHeaderError) Error() string {
+	return fmt.Sprintf("Header parameter %s is required, but not found", e.ParamName)
+}
+
+func (e *RequiredHeaderError) Unwrap() error {
+	return e.Err
+}
+
+type InvalidParamFormatError struct {
+	ParamName string
+	Err       error
+}
+
+func (e *InvalidParamFormatError) Error() string {
+	return fmt.Sprintf("Invalid format for parameter %s: %s", e.ParamName, e.Err.Error())
+}
+
+func (e *InvalidParamFormatError) Unwrap() error {
+	return e.Err
+}
+
+type TooManyValuesForParamError struct {
+	ParamName string
+	Count     int
+}
+
+func (e *TooManyValuesForParamError) Error() string {
+	return fmt.Sprintf("Expected one value for %s, got %d", e.ParamName, e.Count)
+}
+
+// Handler creates http.Handler with routing matching OpenAPI spec.
+func Handler(si ServerInterface) http.Handler {
+	return HandlerWithOptions(si, ChiServerOptions{})
+}
+
+type ChiServerOptions struct {
+	BaseURL          string
+	BaseRouter       chi.Router
+	Middlewares      []MiddlewareFunc
+	ErrorHandlerFunc func(w http.ResponseWriter, r *http.Request, err error)
+}
+
+// HandlerFromMux creates http.Handler with routing matching OpenAPI spec based on the provided mux.
+func HandlerFromMux(si ServerInterface, r chi.Router) http.Handler {
+	return HandlerWithOptions(si, ChiServerOptions{
+		BaseRouter: r,
+	})
+}
+
+func HandlerFromMuxWithBaseURL(si ServerInterface, r chi.Router, baseURL string) http.Handler {
+	return HandlerWithOptions(si, ChiServerOptions{
+		BaseURL:    baseURL,
+		BaseRouter: r,
+	})
+}
+
+// HandlerWithOptions creates http.Handler with additional options
+func HandlerWithOptions(si ServerInterface, options ChiServerOptions) http.Handler {
+	r := options.BaseRouter
+
+	if r == nil {
+		r = chi.NewRouter()
+	}
+	if options.ErrorHandlerFunc == nil {
+		options.ErrorHandlerFunc = func(w http.ResponseWriter, r *http.Request, err error) {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+		}
+	}
+	wrapper := ServerInterfaceWrapper{
+		Handler:            si,
+		HandlerMiddlewares: options.Middlewares,
+		ErrorHandlerFunc:   options.ErrorHandlerFunc,
+	}
+
+	r.Group(func(r chi.Router) {
+		r.Get(options.BaseURL+"/", wrapper.HealthCheck)
+	})
+	r.Group(func(r chi.Router) {
+		r.Post(options.BaseURL+"/track", wrapper.TrackEvent)
+	})
+
+	return r
+}
+
+// Base64 encoded, gzipped, json marshaled Swagger object
+var swaggerSpec = []string{
+
+	"H4sIAAAAAAAC/6xWT3PbthP9KvvDr0eK+uM46ejmpmnrUzK100ObjgYCV+Q6JIBgQdmajL57Z0H9IS22",
+	"ziEXDQkuFw9v33viV2Vc451FG1ktvyo2FTY6Xb4LwQW58MF5DJEwLTfIrEuUS3zSja9RLdWt3eqaCgj4",
+	"pUWO4PWudrpQmYo7LwUcA9lS7feZkhoKWKjlX6dmf58K3foBTVT7TL3boo1vnY34FC9haO8vF61ungH7",
+	"HQ1G5y+BZGqLgcnZYf08X+RXo7Av8BW4JYOXIByvxlu/ya/HcHQL/Upy/C0QxkD9hrqO1V3UseVvnN2v",
+	"DhjDFkONzPBIsYL3Hu3Nh1tgj+Z/Y5j5tMG5z8cPL4778NrYtO+DNp/TyEdmbZ3dNa7l20JuC2QTyMfE",
+	"sLqB1tKXFoEKtJE2hAE2LoCGljHAGjcuIMQKd1C7EsjmKuuhlt4TvTYFTjZlRQ9jpzVnEf4QcKOW6v/T",
+	"s22mB89MB4LdZwqPpxkCvq8QRKjgNgILUhmskWwJUVjAYgjxzgREC38QPmIxhm/I1nN6NjU+0bpG6MhO",
+	"5JiWo2vg/CIErHXEAqI7gxrA6CXFigphrihW0a02eusCReTVuo3RWZUpToBXnRvFguTxZ4ya6u4oaky5",
+	"kRrkqBs/cgYLt3fv4cfXszmcytI5Hiu0PRKdMW0Iz/lbzBbXk9nryeLN/XyxnM+WV7N8vrj6U2Vq40Kj",
+	"o1qqQkecSO//cujlHOWJzLGjC34R3ZlIW4q7bpZkywxiRQzEoOtHvWP4pNKjTyrBtG0j1khLPWecdxcZ",
+	"jwlf9v836deuLLGYkE0mGNIhK5P54urV9Yt+TU+PQs4GPuwP7NLP0ojsxo3pUcKGDCakR45A2wLIlshR",
+	"7pJzT0Sm7TlPW8Z+qsPNseSu66l6qa7m+SyfCYHOo9We1FJd5bOU7l7HKnllKj8ljrj0bYXmMwN1Hj1i",
+	"JgZxjJYiXQuk062M6BC/6V0lVLJ3ljtbLmazzkQ2HmJBe1+TSS9PH7j7u+iy5KWkGaR8InsI/u4Mt0ql",
+	"u0RwaK0lW+Zpztw2jQ67E2joUMujaSdGyWHHI9wI/bRFTk19cAaZ5Q6YbFnj2PguqeoFfic65PiTK3bf",
+	"jaTeBiMU3QzAHuIjqTdXfRPE0OL+YpSLcTt2bR41gzYGveSpqPxAUUd9pl59RyV0H2kj5xM4x6+xtSt2",
+	"ogU6fKW5AI2uJfskKodiSKzBRyHlxN3+nwAAAP//v3gDvyYKAAA=",
+}
+
+// GetSwagger returns the content of the embedded swagger specification file
+// or error if failed to decode
+func decodeSpec() ([]byte, error) {
+	zipped, err := base64.StdEncoding.DecodeString(strings.Join(swaggerSpec, ""))
+	if err != nil {
+		return nil, fmt.Errorf("error base64 decoding spec: %w", err)
+	}
+	zr, err := gzip.NewReader(bytes.NewReader(zipped))
+	if err != nil {
+		return nil, fmt.Errorf("error decompressing spec: %w", err)
+	}
+	var buf bytes.Buffer
+	_, err = buf.ReadFrom(zr)
+	if err != nil {
+		return nil, fmt.Errorf("error decompressing spec: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
+var rawSpec = decodeSpecCached()
+
+// a naive cached of a decoded swagger spec
+func decodeSpecCached() func() ([]byte, error) {
+	data, err := decodeSpec()
+	return func() ([]byte, error) {
+		return data, err
+	}
+}
+
+// Constructs a synthetic filesystem for resolving external references when loading openapi specifications.
+func PathToRawSpec(pathToFile string) map[string]func() ([]byte, error) {
+	res := make(map[string]func() ([]byte, error))
+	if len(pathToFile) > 0 {
+		res[pathToFile] = rawSpec
+	}
+
+	return res
+}
+
+// GetSwagger returns the Swagger specification corresponding to the generated code
+// in this file. The external references of Swagger specification are resolved.
+// The logic of resolving external references is tightly connected to "import-mapping" feature.
+// Externally referenced files must be embedded in the corresponding golang packages.
+// Urls can be supported but this task was out of the scope.
+func GetSwagger() (swagger *openapi3.T, err error) {
+	resolvePath := PathToRawSpec("")
+
+	loader := openapi3.NewLoader()
+	loader.IsExternalRefsAllowed = true
+	loader.ReadFromURIFunc = func(loader *openapi3.Loader, url *url.URL) ([]byte, error) {
+		pathToFile := url.String()
+		pathToFile = path.Clean(pathToFile)
+		getSpec, ok := resolvePath[pathToFile]
+		if !ok {
+			err1 := fmt.Errorf("path not found: %s", pathToFile)
+			return nil, err1
+		}
+		return getSpec()
+	}
+	var specData []byte
+	specData, err = rawSpec()
+	if err != nil {
+		return
+	}
+	swagger, err = loader.LoadFromData(specData)
+	if err != nil {
+		return
+	}
+	return
 }

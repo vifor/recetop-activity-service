@@ -101,10 +101,62 @@ While the primary target is AWS Lambda, the Hexagonal Architecture makes local t
 
 *Note: Due to the default AWS HTTP API Gateway configuration, all routes are prefixed with the stage and function name. The application's router is configured to handle this base path (`/default/recetop-activity-service`).*
 
-| HTTP Method | Endpoint | Description                                | Response Body                                              |
-| :---------- | :------- | :----------------------------------------- | :--------------------------------------------------------- |
-| `GET`       | `/`      | Checks the health of the service endpoint. | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
+| HTTP Method | Endpoint | Description                                | Request Body | Response Body |
+| :---------- | :------- | :----------------------------------------- | :----------- | :------------ |
+| `GET`       | `/`      | Checks the health of the service endpoint. | - | `{"status":"UP","message":"Go serverless with OpenAPI spec!"}` |
+| `POST`      | `/track` | Records a user activity event.            | [TrackEvent](#trackevent-object) | 202 Accepted (empty body) |
+
+### TrackEvent Object
+
+```json
+{
+  "type": "track",
+  "event": "Screen Viewed",
+  "userId": "user-12345",
+  "anonymousId": "anon-abcde-fghij",
+  "timestamp": "2025-06-27T12:10:30.123Z",
+  "context": {
+    "app": {
+      "name": "Recetop",
+      "version": "1.2.3"
+    },
+    "device": {
+      "type": "ios",
+      "os_version": "17.5"
+    }
+  },
+  "properties": {
+    "screen_name": "RecipeDetailScreen",
+    "component_id": "add_to_favorites_button"
+  }
+}
+```
+
+**Required Fields:**
+- `type`: Must be "track"
+- `event`: Name of the event being tracked
+- `anonymousId`: Unique identifier for anonymous users
+- `timestamp`: ISO 8601 timestamp of when the event occurred
+
+**Optional Fields:**
+- `userId`: Required for authenticated users
+- `context`: Additional context about the event
+- `properties`: Custom properties specific to the event
 ---
+
+## Event Schema
+
+The service uses a flexible event schema based on Segment's tracking API specification, supporting both anonymous and authenticated user tracking. Events are validated against the schema defined in `openapi.yaml`.
+
+### Event Types
+
+- **Page Views:** Track when users view different screens
+- **User Actions:** Track button clicks, form submissions, etc.
+- **System Events:** Track application errors and performance metrics
+
+### Data Privacy
+
+All events containing PII must include the `anonymousId` field. The `userId` field should only be included for authenticated users.
 
 ## Testing Strategy
 
